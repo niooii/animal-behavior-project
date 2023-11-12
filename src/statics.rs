@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use crate::LanternFly;
 use crate::Transform;
+use crate::Fork;
 
 lazy_static!(
     pub static ref FLIES: Mutex<Vec<LanternFly>> = {
@@ -16,4 +17,6 @@ lazy_static!(
 
         Mutex::new(v)
     };
+
+    pub static ref FORK: Mutex<Option<Fork>> = Mutex::new(None);
 );

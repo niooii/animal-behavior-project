@@ -24,15 +24,20 @@ mod stopwatch;
 use stopwatch::Stopwatch;
 
 mod statics;
-use statics::{FLIES, FIRES};
+use statics::{FLIES, FIRES, FORK};
 
 const SCREEN_BOUNDS: (u32, u32) = (1200, 900);
+const WALK_SPEED: f32 = 2.5;
+const FLY_SPEED_LOWER: f32 = 10.0;
+const FLY_SPEED_UPPER: f32 = 40.0;
+
+
 
 #[derive(Copy, Clone)]
 struct MoveTarget {
     target_pos: Vector2,
     original_pos: Vector2,
-    move_time: f32,
+    speed: f32,
 }
 #[derive(Copy, Clone)]
 pub struct Transform {
@@ -46,6 +51,7 @@ pub struct LanternFly {
     move_target: Option<MoveTarget>,
     time_moved: f32,
     time_since_move: f32,
+    flying: bool,
 }
 
 impl LanternFly {
@@ -54,29 +60,48 @@ impl LanternFly {
             transform: Transform { pos: Vector2::new(x as f32, y as f32), rot: 0.0 },
             move_target: None,
             time_moved: 0.0,
-            time_since_move: 0.0
+            time_since_move: 0.0,
+            flying: false,
         }
     }
 
-    fn move_to(&mut self, x: f32, y: f32, time: f32) {
+    fn fly_to(&mut self, x: f32, y: f32, spd: f32) {
         self.time_moved = 0.0;
         self.time_since_move = 0.0;
         self.move_target = Some(MoveTarget {
             target_pos: Vector2 { x, y },
             original_pos: self.transform.pos,
-            move_time: time
+            // scale up speed
+            speed: spd * 20.0
         });
 
         // calculate angle of rotation
-
+        self.flying = true;
         self.transform.rot = self.transform.pos.lookat_angle(
             &self.move_target.unwrap().target_pos
-        );
+        );       
+    }
+
+    fn walk_to(&mut self, x: f32, y: f32, spd: f32) {
+        self.time_moved = 0.0;
+        self.time_since_move = 0.0;
+        self.move_target = Some(MoveTarget {
+            target_pos: Vector2 { x, y },
+            original_pos: self.transform.pos,
+            speed: spd * 20.0
+        });
+
+        // calculate angle of rotation
+        self.flying = false;
+        self.transform.rot = self.transform.pos.lookat_angle(
+            &self.move_target.unwrap().target_pos
+        );       
     }
 }
 
-struct Fork {
-    hertz: u32
+pub struct Fork {
+    hertz: u32,
+    transform: Transform,
 }
 
 fn spawn_lanternfly_outside(screen_bounds: &Rect) {
@@ -90,9 +115,9 @@ fn spawn_lanternfly(x: i32, y: i32, tex: &Texture) {
 
     let mut fly = LanternFly::new(x, y,);
     // get random move target
-    fly.move_to(rng.gen_range(tex_info.width as f32..(SCREEN_BOUNDS.0 - tex_info.width) as f32),
+    fly.fly_to(rng.gen_range(tex_info.width as f32..(SCREEN_BOUNDS.0 - tex_info.width) as f32),
                 rng.gen_range(tex_info.height as f32..(SCREEN_BOUNDS.1 - tex_info.height) as f32),
-                rng.gen_range(0.5..2.5));
+                rng.gen_range(FLY_SPEED_LOWER..FLY_SPEED_UPPER));
     flies.push(fly);
 }
 
@@ -103,10 +128,15 @@ fn render_scene(
     idle_tex: &Texture,
     flying_tex: &Texture,
     fire_tex: &Texture,
+    fork_tex: &Texture
 ) {
     let flies = FLIES.lock().unwrap();
     let fires = FIRES.lock().unwrap();
+    let fork = &FORK.lock().expect("could not get fork from mutex")
+    .as_ref().unwrap();
+
     let fly_texinfo = idle_tex.query();
+    let fork_texinfo = fork_tex.query();
     let mut dest = Rect::new(0, 0, fly_texinfo.width, fly_texinfo.height);
 
     for fly in flies.iter() {
@@ -115,7 +145,7 @@ fn render_scene(
         dest.y = fly.transform.pos.y as i32;
 
         // then fly is flying. :=;
-        let tex = if fly.move_target.is_some() {
+        let tex = if fly.move_target.is_some() && fly.flying {
             flying_tex
         } else {
             idle_tex
@@ -147,6 +177,13 @@ fn render_scene(
         )
         .expect("failed to copy texture");
     }
+    
+    // render fork
+    dest.x = fork.transform.pos.x as i32;
+    dest.y = fork.transform.pos.y as i32;
+    dest.set_width(fork_texinfo.width);
+    dest.set_height(fork_texinfo.height);
+    canvas.copy(fork_tex, None, dest).expect("failed to copy texture");
 }
 
 fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, delta_time: f64) {
@@ -172,9 +209,9 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
                 println!("lanternfly has been clicked .>.");
 
                 // get random move
-                fly.move_to(rng.gen_range(0_f32..(SCREEN_BOUNDS.0 - fly_texinfo.width) as f32),
+                fly.fly_to(rng.gen_range(0_f32..(SCREEN_BOUNDS.0 - fly_texinfo.width) as f32),
                 rng.gen_range(0_f32..(SCREEN_BOUNDS.1 - fly_texinfo.height) as f32),
-                rng.gen_range(0.5..2.5));
+                rng.gen_range(FLY_SPEED_LOWER..FLY_SPEED_UPPER));
 
                 clicked.push(fly.transform);
             }
@@ -186,36 +223,52 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
     }
     
     let mut flies = FLIES.lock().unwrap();
-    
+    let fork = FORK.lock().unwrap();
     // Handle fly movements
     for fly in flies.iter_mut() {
+
+        // handles movements if fly is not moving.
         if fly.move_target.is_none() {
             fly.time_since_move += delta_time as f32;
-
+            
+            // if fork exists and hz is 60, 
+            // move to fork.
+            if fork.is_some() {
+                let f = fork.as_ref().unwrap();
+                if f.hertz == 60 {
+                    fly.walk_to(f.transform.pos.x, f.transform.pos.y, WALK_SPEED);
+                    continue;
+                } 
+                else {
+                    //TODO: play sound
+                }
+            }
+            // move fly randomly
             if fly.time_since_move > rng.gen_range(1.0..2.5) {
                 // get random move
-                fly.move_to(rng.gen_range(0_f32..(SCREEN_BOUNDS.0 - fly_texinfo.width) as f32),
+                fly.fly_to(rng.gen_range(0_f32..(SCREEN_BOUNDS.0 - fly_texinfo.width) as f32),
                 rng.gen_range(0_f32..(SCREEN_BOUNDS.1 - fly_texinfo.height) as f32),
-                rng.gen_range(0.5..2.5));
-
-                
+                rng.gen_range(FLY_SPEED_LOWER..FLY_SPEED_UPPER));
+   
             }
-
             continue;
         }
+
+        // actually handle moving the fly
         if fly.time_since_move > 0.0 {
             fly.time_since_move = 0.0;
         }
 
         let mt = fly.move_target.as_mut().unwrap();
 
-
-        fly.transform.pos = Vector2::lerp_new(mt.original_pos, mt.target_pos, fly.time_moved/mt.move_time);
+        let total_move_time = mt.original_pos.distance(&mt.target_pos)/mt.speed;
+        fly.transform.pos = Vector2::lerp_new(mt.original_pos, mt.target_pos, fly.time_moved/total_move_time);
         fly.time_moved += delta_time as f32;
 
         // If fly finished flying, remove the move target.
-        if fly.time_moved >= mt.move_time {
+        if fly.time_moved >= total_move_time {
             fly.move_target = None;
+            fly.flying = false;
         }
         // println!("lerping... {:?}", fly.transform.pos);
     }
@@ -245,8 +298,6 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
             }
         }   
 
-        // sdl2::audio::
-        
         target_idxs.sort_by(|a, b| b.cmp(a));
         for idx in target_idxs   {
             flies.remove(idx);
@@ -283,6 +334,8 @@ pub fn main() -> Result<(), String> {
     let idle_tex = texture_creator.load_texture("resources/fly_closed.png")?;
     let flying_tex = texture_creator.load_texture("resources/fly_open.png")?;
     let fire_tex = texture_creator.load_texture("resources/fire.png")?;
+    let fork_tex = texture_creator.load_texture("resources/fork.png")?;
+    let fork_texinfo = fork_tex.query();
 
     // other vars
     let mut rbutton_down = false;
@@ -293,27 +346,37 @@ pub fn main() -> Result<(), String> {
 
     let mut flies = FLIES.lock().unwrap();
     let mut fires = FIRES.lock().unwrap();
+    let mut fork = FORK.lock().unwrap();
     let mut click_buffer = Vec::<Point>::new();
 
     // Initialize a stopwatch for deltatime
     let mut stopwatch = Stopwatch::new();
     let mut delta_time: f64 = 0.0;
 
-    // add test entities
+    // add objects in game
     for _ in 0..2_i32.pow(8) {
         flies.push(LanternFly::new(200, 300));
     }
 
-    // fires.push(Transform { 
-    //     pos: Vector2 {
-    //         x: 300.0,
-    //         y: 400.0,
-    //     }, 
-    //     rot: 0.0
-    // });
+    fires.push(Transform { 
+        pos: Vector2 {
+            x: 400.0,
+            y: 400.0,
+        }, 
+        rot: 0.0
+    });
+
+    *fork = Some(Fork {
+        hertz: 60,
+        transform: Transform {
+            pos: Vector2::new(400.0, 400.0),
+            rot: 0.0,
+        }
+    });
 
     drop(flies);
     drop(fires);
+    drop(fork);
 
     // render loop
     'running: loop {
@@ -343,13 +406,18 @@ pub fn main() -> Result<(), String> {
                 Event::MouseButtonUp { mouse_btn: MouseButton::Right, .. } => {
                     rbutton_down = false;
                 }
-                // Move either fire or fork somewhere
+                // Move fork somewhere
                 Event::MouseMotion { x, y, xrel, yrel, .. } => {
                     if !rbutton_down {
                         continue;
                     }
 
-                    println!("MOVE FIRE NOW!!");
+                    // let fork = FORK.lock().expect("failed to get fork struct")
+                    // .unwrap();
+                    // let query_rect = Rect::new(
+                    //     fork.transform.pos.x as i32,
+                    //     fork.transform.pos.y as i32,
+                    //      )
                 },
                 _ => {}
             }

@@ -44,4 +44,11 @@ impl Vector2 {
 
         (dy).atan2(dx).to_degrees() + 90.0
     } 
+
+    /// The Euclidean distance between two vectors.
+    pub fn distance(&self, other: &Vector2) -> f32 {
+        let dx = other.x - self.x;
+        let dy = other.y - self.y;
+        (dx * dx + dy * dy).sqrt()
+    }
 }
