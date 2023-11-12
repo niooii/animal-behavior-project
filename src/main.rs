@@ -24,13 +24,13 @@ mod stopwatch;
 use stopwatch::Stopwatch;
 
 mod statics;
-use statics::{FLIES, FIRES, FORK};
+use statics::{FLIES, FIRES};
 
 const SCREEN_BOUNDS: (u32, u32) = (1200, 900);
 const WALK_SPEED: f32 = 2.5;
 const FLY_SPEED_LOWER: f32 = 10.0;
 const FLY_SPEED_UPPER: f32 = 40.0;
-
+const AMBIENT_SPAWNRATE: f32 = 10.0;
 
 
 #[derive(Copy, Clone)]
@@ -128,12 +128,11 @@ fn render_scene(
     idle_tex: &Texture,
     flying_tex: &Texture,
     fire_tex: &Texture,
-    fork_tex: &Texture
+    fork_tex: &Texture, 
+    fork: &mut Fork
 ) {
     let flies = FLIES.lock().unwrap();
     let fires = FIRES.lock().unwrap();
-    let fork = &FORK.lock().expect("could not get fork from mutex")
-    .as_ref().unwrap();
 
     let fly_texinfo = idle_tex.query();
     let fork_texinfo = fork_tex.query();
@@ -186,7 +185,7 @@ fn render_scene(
     canvas.copy(fork_tex, None, dest).expect("failed to copy texture");
 }
 
-fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, delta_time: f64) {
+fn update_scene(click_buf: &Vec<Point>, fork: &mut Fork, fly_tex: &Texture, fire_tex: &Texture, delta_time: f64, fork_updated: bool) {
     
     // Process new clicks (clicking on lanternflies)
     
@@ -197,7 +196,7 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
     
     
 
-    let mut clicked: Vec<Transform> = Vec::new();
+    // let mut clicked: Vec<Transform> = Vec::new();
 
     for &click in click_buf {
         let mut flies = FLIES.lock().unwrap();
@@ -206,43 +205,52 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
             query_rect.y = fly.transform.pos.y as i32;
             
             if query_rect.contains_point(click) {
-                println!("lanternfly has been clicked .>.");
+                // println!("lanternfly has been clicked .>.");
 
                 // get random move
                 fly.fly_to(rng.gen_range(0_f32..(SCREEN_BOUNDS.0 - fly_texinfo.width) as f32),
                 rng.gen_range(0_f32..(SCREEN_BOUNDS.1 - fly_texinfo.height) as f32),
                 rng.gen_range(FLY_SPEED_LOWER..FLY_SPEED_UPPER));
 
-                clicked.push(fly.transform);
+                // cclicked.push(fly.transform);
             }
         }
     }
 
-    for transform in clicked {
-        spawn_lanternfly(transform.pos.x as i32, transform.pos.y as i32, fly_tex);
-    }
+    // no more cloning oml
+    // for transform in clicked {
+    //     spawn_lanternfly(transform.pos.x as i32, transform.pos.y as i32, fly_tex);
+    // }
     
     let mut flies = FLIES.lock().unwrap();
-    let fork = FORK.lock().unwrap();
     // Handle fly movements
     for fly in flies.iter_mut() {
+
+        // handles movement if fork position is updated
+        if fork_updated {
+            if fork.hertz == 60 {
+                fly.walk_to(fork.transform.pos.x, fork.transform.pos.y, WALK_SPEED);
+                // continue;
+            } 
+            else {
+                fly.move_target = None;
+            }
+        }
 
         // handles movements if fly is not moving.
         if fly.move_target.is_none() {
             fly.time_since_move += delta_time as f32;
             
-            // if fork exists and hz is 60, 
-            // move to fork.
-            if fork.is_some() {
-                let f = fork.as_ref().unwrap();
-                if f.hertz == 60 {
-                    fly.walk_to(f.transform.pos.x, f.transform.pos.y, WALK_SPEED);
-                    continue;
-                } 
-                else {
-                    //TODO: play sound
-                }
-            }
+            // // if fork hz is 60, 
+            // // move to fork.
+            // if fork.hertz == 60 {
+            //     fly.walk_to(fork.transform.pos.x, fork.transform.pos.y, WALK_SPEED);
+            //     continue;
+            // } 
+            // else {
+            //     //TODO: play sound
+            // }
+
             // move fly randomly
             if fly.time_since_move > rng.gen_range(1.0..2.5) {
                 // get random move
@@ -262,9 +270,9 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
         let mt = fly.move_target.as_mut().unwrap();
 
         let total_move_time = mt.original_pos.distance(&mt.target_pos)/mt.speed;
-        fly.transform.pos = Vector2::lerp_new(mt.original_pos, mt.target_pos, fly.time_moved/total_move_time);
         fly.time_moved += delta_time as f32;
-
+        fly.transform.pos = Vector2::lerp_new(mt.original_pos, mt.target_pos, fly.time_moved/total_move_time);
+        
         // If fly finished flying, remove the move target.
         if fly.time_moved >= total_move_time {
             fly.move_target = None;
@@ -305,6 +313,7 @@ fn update_scene(click_buf: &Vec<Point>, fly_tex: &Texture, fire_tex: &Texture, d
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn main() -> Result<(), String> {
     // Fix on kde
     std::env::set_var("SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR", "0");
@@ -338,7 +347,10 @@ pub fn main() -> Result<(), String> {
     let fork_texinfo = fork_tex.query();
 
     // other vars
-    let mut rbutton_down = false;
+    // let mut rbutton_down = false;
+    let mut dragging_fork = false;
+    let mut fork_updated = false;
+    let mut mouse_pos = Vector2::new(0.0, 0.0);
 
     canvas.set_draw_color(Color::RGB(255, 255, 255));
 
@@ -346,7 +358,6 @@ pub fn main() -> Result<(), String> {
 
     let mut flies = FLIES.lock().unwrap();
     let mut fires = FIRES.lock().unwrap();
-    let mut fork = FORK.lock().unwrap();
     let mut click_buffer = Vec::<Point>::new();
 
     // Initialize a stopwatch for deltatime
@@ -358,25 +369,24 @@ pub fn main() -> Result<(), String> {
         flies.push(LanternFly::new(200, 300));
     }
 
-    fires.push(Transform { 
-        pos: Vector2 {
-            x: 400.0,
-            y: 400.0,
-        }, 
-        rot: 0.0
-    });
+    // fires.push(Transform { 
+    //     pos: Vector2 {
+    //         x: 400.0,
+    //         y: 400.0,
+    //     }, 
+    //     rot: 0.0
+    // });
 
-    *fork = Some(Fork {
+    let mut fork = Fork {
         hertz: 60,
         transform: Transform {
             pos: Vector2::new(400.0, 400.0),
             rot: 0.0,
         }
-    });
+    };
 
     drop(flies);
     drop(fires);
-    drop(fork);
 
     // render loop
     'running: loop {
@@ -386,11 +396,25 @@ pub fn main() -> Result<(), String> {
         // HANDLE EVENTS
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
+                Event::Quit { .. } => break 'running,
+                Event::KeyDown { keycode, .. } => {
+                    if keycode.is_none() {
+                        // may cause problems later idk watch out if some events arent being handled
+                        break;
+                    }
+
+                    match keycode.unwrap() {
+                        Keycode::Q => {
+                            fork.hertz -= 1;
+                            fork_updated = true;
+                        },
+                        Keycode::E => {
+                            fork.hertz += 1;
+                            fork_updated = true;
+                        },
+                        _ => {},
+                    }
+                },
                 Event::MouseButtonDown { x, y, mouse_btn, .. } => {
                     match mouse_btn {
                         MouseButton::Left => {
@@ -398,26 +422,33 @@ pub fn main() -> Result<(), String> {
                             click_buffer.push(Point::new(x, y));
                         },
                         MouseButton::Right => {
-                            rbutton_down = true;
+
+                            let query_rect = Rect::new(
+                                fork.transform.pos.x as i32,
+                                fork.transform.pos.y as i32,
+                                fork_texinfo.width,
+                                fork_texinfo.height
+                                );
+
+                            if query_rect.contains_point(Point::new(x, y)) {
+                                dragging_fork = true;
+                            }
                         }
                         _ => println!("unknown button type wtf"),
                     }
                 },
                 Event::MouseButtonUp { mouse_btn: MouseButton::Right, .. } => {
-                    rbutton_down = false;
+                    dragging_fork = false;
                 }
                 // Move fork somewhere
                 Event::MouseMotion { x, y, xrel, yrel, .. } => {
-                    if !rbutton_down {
-                        continue;
+                    
+                    if(dragging_fork) {
+                        fork.transform.pos.x += xrel as f32;
+                        fork.transform.pos.y += yrel as f32;
+                        fork_updated = true;
                     }
 
-                    // let fork = FORK.lock().expect("failed to get fork struct")
-                    // .unwrap();
-                    // let query_rect = Rect::new(
-                    //     fork.transform.pos.x as i32,
-                    //     fork.transform.pos.y as i32,
-                    //      )
                 },
                 _ => {}
             }
@@ -427,21 +458,23 @@ pub fn main() -> Result<(), String> {
 
         // DRAWING CODE
 
-        render_scene(&mut canvas, &idle_tex, &flying_tex, &fire_tex);
+        render_scene(&mut canvas, &idle_tex, &flying_tex, &fire_tex, &fork_tex, &mut fork);
 
         // DRAWING CODE END
         canvas.present();
 
         // LOGIC CODE
 
-        update_scene(&click_buffer, &idle_tex, &fire_tex, delta_time);
+        update_scene(&click_buffer, &mut fork, &idle_tex, &fire_tex, delta_time, fork_updated);
 
         limit_fps(stopwatch.elapsed_seconds(), 90.0);
 
         // get dt && reset stopwatch
         delta_time = stopwatch.elapsed_seconds();
-        // println!("{delta_time}");
+
         stopwatch.reset();
+
+        fork_updated = false;
     }
 
     Ok(())

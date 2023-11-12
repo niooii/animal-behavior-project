@@ -17,6 +17,4 @@ lazy_static!(
 
         Mutex::new(v)
     };
-
-    pub static ref FORK: Mutex<Option<Fork>> = Mutex::new(None);
 );
