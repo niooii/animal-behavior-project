@@ -243,13 +243,14 @@ fn update_scene(click_buf: &Vec<Point>, fork: &mut Fork, fly_tex: &Texture, fire
             
             // // if fork hz is 60, 
             // // move to fork.
-            // if fork.hertz == 60 {
-            //     fly.walk_to(fork.transform.pos.x, fork.transform.pos.y, WALK_SPEED);
-            //     continue;
-            // } 
-            // else {
-            //     //TODO: play sound
-            // }
+            // this is only really important if the fly is clicked while fork is 60 hz..
+            if fork.hertz == 60 {
+                fly.walk_to(fork.transform.pos.x, fork.transform.pos.y, WALK_SPEED);
+                continue;
+            } 
+            else {
+                //TODO: play sound
+            }
 
             // move fly randomly
             if fly.time_since_move > rng.gen_range(1.0..2.5) {
@@ -349,7 +350,7 @@ pub fn main() -> Result<(), String> {
     // other vars
     // let mut rbutton_down = false;
     let mut dragging_fork = false;
-    let mut fork_updated = false;
+    let mut fork_updated = true;
     let mut mouse_pos = Vector2::new(0.0, 0.0);
 
     canvas.set_draw_color(Color::RGB(255, 255, 255));
