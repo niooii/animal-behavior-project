@@ -14,7 +14,7 @@ impl Vector2 {
     }
 
     // Returns a new interpolated vector.
-    pub fn lerp_new(one: Vector2, other: Vector2,d: f32) -> Vector2 {
+    pub fn lerp_new(one: &Vector2, other: &Vector2,d: f32) -> Vector2 {
         let x = (one.x + (other.x - one.x)*d);
         let y = (one.y + (other.y - one.y)*d);
 
@@ -50,5 +50,37 @@ impl Vector2 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
         (dx * dx + dy * dy).sqrt()
+    }
+
+    // loses floating point presicion.
+    pub fn to_sdlpoint(&self) -> sdl2::rect::Point {
+        sdl2::rect::Point::new(self.x as i32, self.y as i32)
+    }
+
+    // returns a loose array of points connecting one Vector to another.
+    pub fn points_between(&self, other: &Vector2, step: f32) -> Vec<sdl2::rect::Point> {
+        let mut v = Vec::<sdl2::rect::Point>::new();
+
+        let mut current_dist = 0.0;
+        let mut current_pos = Vector2::new(self.x, self.y);
+        let target_dist = self.distance(other);
+
+        while current_dist < 1.0 {
+            // reduntant calculations here, whoops
+            v.push(Vector2::lerp_new(self, other, current_dist).to_sdlpoint());
+            current_dist += step;
+        }
+
+        v
+    }
+
+    pub fn intersects_rectangle(&self, rect: &sdl2::rect::Rect, other: &Vector2) -> bool {
+        for point in self.points_between(other, 0.01) {
+            if rect.contains_point(point) {
+                return true;
+            }
+        }
+
+        false
     }
 }

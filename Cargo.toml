@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+emscripten_main_loop = "0.1.1"
 lazy_static = "1.4.0"
 rand = "0.8.5"
 
@@ -14,3 +15,6 @@ rand = "0.8.5"
 version = "0.35.2"
 default-features = false
 features = ["ttf","image","gfx","mixer"]#,"static-link","use-pkgconfig"]
+
+[target.wasm32-unknown-emscripten]
+rustflags = ["-C", "link-args=-s USE_SDL=2 -s USE_SDL_MIXER=2 -s USE_SDL_TTF=2 -s USE_SDL_IMAGE=2"]
