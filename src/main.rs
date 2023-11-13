@@ -463,12 +463,9 @@ pub fn main() -> Result<(), String> {
         }
     };
 
-    drop(flies);
-    drop(fires);
-
     // setup font stuff
     let mut font = ttf_context.load_font("resources/lazy.ttf", 30)?;
-    font.set_style(sdl2::ttf::FontStyle::BOLD);
+    font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
     // render a surface, and convert it to a texture bound to the canvas
     let surface = font
@@ -478,6 +475,22 @@ pub fn main() -> Result<(), String> {
     let mut hz_font_tex = texture_creator
         .create_texture_from_surface(&surface)
         .map_err(|e| e.to_string())?;
+
+    // do the same for lanternfly count
+    // big font
+    font = ttf_context.load_font("resources/lazy.ttf", 50)?;
+    let surface = font
+        .render(format!("{} flies", flies.len()).as_str())
+        .blended(Color::RGBA(0, 0, 0, 255))
+        .map_err(|e| e.to_string())?;
+    let mut flycount_font_tex = texture_creator
+        .create_texture_from_surface(&surface)
+        .map_err(|e| e.to_string())?;
+    let flycount_dest = Rect::new(0, 0, flycount_font_tex.query().width, flycount_font_tex.query().height);
+
+    // release mutexes
+    drop(flies);
+    drop(fires);
 
     // render loop
     let mut main_loop = || {
@@ -572,7 +585,21 @@ pub fn main() -> Result<(), String> {
         // DRAWING CODE
 
         render_scene(&mut canvas, &idle_tex, &flying_tex, &fire_tex, &fork_tex, &hz_font_tex, &mut fork);
+        let flies = FLIES.lock().unwrap();
+        // update fly count
+        let surface = font
+            .render(format!("{} flies", flies.len()).as_str())
+            .blended(Color::RGBA(0, 0, 0, 255))
+            .map_err(|e| e.to_string()).unwrap();
+        flycount_font_tex = texture_creator
+            .create_texture_from_surface(&surface)
+            .map_err(|e| e.to_string()).unwrap();
+        let flycount_dest = Rect::new(0, 0, flycount_font_tex.query().width, flycount_font_tex.query().height);
 
+        canvas.copy(&flycount_font_tex, None, flycount_dest).unwrap();
+
+        drop(flies);
+        
         // DRAWING CODE END
         canvas.present();
 
